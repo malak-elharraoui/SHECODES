@@ -33,10 +33,25 @@ class Opsh:
 
     @staticmethod
     def parse_command(text):
-argv = shlex.split(text, posix=True)
+        lex = shlex.shlex(text, posix=True, punctuation_chars="<>")
+        lex.whitespace_split = True
+        tokens = list(lex)
+        argv, infile, outfile, append = [], None, None, False
+        i = 0
+        while i < len(tokens):
+            t = tokens[i]
+            if t in (">", ">>"):
+                outfile, append = tokens[i + 1], t == ">>"
+                i += 2
+            elif t == "<":
+                infile = tokens[i + 1]
+                i += 2
+            else:
+                argv.append(t)
+                i += 1
         if argv and argv[0] in ALIASES:
             argv[0] = ALIASES[argv[0]]
-        return argv
+        return argv, infile, outfile, append
 
     def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
@@ -58,11 +73,45 @@ argv = shlex.split(text, posix=True)
         elif cmd == "info":
             print("builtins : " + ", ".join(BUILTINS))
             print("aliases  : " + ", ".join(f"{k}={v}" for k, v in ALIASES.items()))
-            print("pipe : cmd1 -> cmd2")
+            print("pipe : cmd1 -> cmd2   redirections: > >> <")
         elif cmd == "past":
             for n, h in enumerate(self.history, 1):
                 print(f"{n:>4}  {h}")
         return 0
+
+
+        @staticmethod
+    def apply_redirections(infile, outfile, append):
+        if infile:
+            fd = os.open(infile, os.O_RDONLY)
+            os.dup2(fd, 0)
+            os.close(fd)
+        if outfile:
+            flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
+            fd = os.open(outfile, flags, 0o644)
+            os.dup2(fd, 1)
+            os.close(fd)
+
+    def run_builtin_redirected(self, cmd):
+        argv, infile, outfile, append = cmd
+        saved = os.dup(0), os.dup(1)
+        try:
+            sys.stdout.flush()
+            self.apply_redirections(infile, outfile, append)
+            status = self.builtin(argv)
+            sys.stdout.flush()
+        except (OSError, ValueError) as e:
+            print(f"opsh: {e}", file=sys.stderr)
+            status = 1
+        finally:
+            os.dup2(saved[0], 0)
+            os.dup2(saved[1], 1)
+            os.close(saved[0])
+            os.close(saved[1])
+        return status
+
+
+
     def run_line(self, line):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -73,21 +122,25 @@ argv = shlex.split(text, posix=True)
             print(f"opsh: syntax error: {e}", file=sys.stderr)
             self.last_status = 2
             return
-        if any(not argv for argv in commands):
+        if any(not c[0] for c in commands):
             print("opsh: syntax error near '->'", file=sys.stderr)
             self.last_status = 2
             return
-        argv = commands[0]
-         if argv[0] in BUILTINS:
-            self.last_status = self.builtin(argv)
+        argv, infile, outfile, append = commands[0]
+        if argv[0] in BUILTINS:
+            self.last_status = self.run_builtin_redirected(commands[0])
             return
          pid = os.fork()
         if pid == 0:
             try:
-                os.execvp(argv[0], argv)
-            except FileNotFoundError:
-                print(f"opsh: command not found: {argv[0]}", file=sys.stderr)
+            self.apply_redirections(infile, outfile, append)
+            os.execvp(argv[0], argv)
+            except FileNotFoundError as e:
+                print(f"opsh: {e.filename + ': no such file' if e.filename else 'command not found: ' + argv[0]}", file=sys.stderr)
                 os._exit(127)
+            except OSError as e:
+                print(f"opsh: {e.filename or argv[0]}: {e.strerror}", file=sys.stderr)
+                os._exit(126)
         _, st = os.waitpid(pid, 0)
         self.last_status = os.waitstatus_to_exitcode(st)
 
@@ -98,9 +151,9 @@ argv = shlex.split(text, posix=True)
              except EOFError:
                  print()
                   break
-        if line.strip():
+             if line.strip():
                 self.history.append(line)
-        self.run_line(line)
+             self.run_line(line)
    def main():
     shell = Opsh()
     shell.repl()
