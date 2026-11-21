@@ -13,7 +13,10 @@ BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo"]
 class Opsh:
     def __init__(self):
         self.last_status = 0
+        self.last_bg_pid = "" 
         self.history = []
+          self.jobs = {}         
+          self.next_job = 1 
 
     @staticmethod
     def split_pipes(line):
@@ -33,10 +36,10 @@ class Opsh:
 
     @staticmethod
     def parse_command(text):
-        lex = shlex.shlex(text, posix=True, punctuation_chars="<>")
+        lex = shlex.shlex(text, posix=True, punctuation_chars="<>&")
         lex.whitespace_split = True
         tokens = list(lex)
-        argv, infile, outfile, append = [], None, None, False
+        argv, infile, outfile, append,bg = [], None, None, False, False
         i = 0
         while i < len(tokens):
             t = tokens[i]
@@ -46,12 +49,15 @@ class Opsh:
             elif t == "<":
                 infile = tokens[i + 1]
                 i += 2
+            elif t == "&":                 
+                bg = True                
+                i += 1 
             else:
                 argv.append(t)
                 i += 1
         if argv and argv[0] in ALIASES:
             argv[0] = ALIASES[argv[0]]
-        return argv, infile, outfile, append
+        return argv, infile, outfile, append, bg
 
     def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
@@ -73,7 +79,7 @@ class Opsh:
         elif cmd == "info":
             print("builtins : " + ", ".join(BUILTINS))
             print("aliases  : " + ", ".join(f"{k}={v}" for k, v in ALIASES.items()))
-            print("pipe : cmd1 -> cmd2   redirections: > >> <")
+                print("pipe : cmd1 -> cmd2   redirections: > >> <   background: &") 
         elif cmd == "past":
             for n, h in enumerate(self.history, 1):
                 print(f"{n:>4}  {h}")
@@ -93,7 +99,7 @@ class Opsh:
             os.close(fd)
 
     def run_builtin_redirected(self, cmd):
-        argv, infile, outfile, append = cmd
+        argv, infile, outfile, append,_ = cmd
         saved = os.dup(0), os.dup(1)
         try:
             sys.stdout.flush()
@@ -126,25 +132,71 @@ class Opsh:
             print("opsh: syntax error near '->'", file=sys.stderr)
             self.last_status = 2
             return
-        argv, infile, outfile, append = commands[0]
-        if argv[0] in BUILTINS:
-            self.last_status = self.run_builtin_redirected(commands[0])
-            return
-         pid = os.fork()
-        if pid == 0:
-            try:
-            self.apply_redirections(infile, outfile, append)
-            os.execvp(argv[0], argv)
-            except FileNotFoundError as e:
-                print(f"opsh: {e.filename + ': no such file' if e.filename else 'command not found: ' + argv[0]}", file=sys.stderr)
-                os._exit(127)
-            except OSError as e:
-                print(f"opsh: {e.filename or argv[0]}: {e.strerror}", file=sys.stderr)
-                os._exit(126)
-        _, st = os.waitpid(pid, 0)
-        self.last_status = os.waitstatus_to_exitcode(st)
+ self.last_status = self.run_pipeline(commands, line) 
+  def run_pipeline(self, commands, text):         
+  background = commands[-1][4] 
+  if len(commands) == 1 and commands[0][0][0] in BUILTINS and not background:
+             return self.run_builtin_redirected(commands[0])         
+             return self.fork_pipeline(commands, text, background)  
+  def fork_pipeline(self, commands, text, background): 
+ pids, prev_read = [], None 
+for idx, (argv, infile, outfile, append, _) in enumerate(commands): 
+  last = idx == len(commands) - 1 
+  if not last: 
+   r, w = os.pipe() 
+  pid = os.fork() 
+    if pid == 0:
+    if background:                     
+          os.setpgid(0, 0)
+   if prev_read is not None:      
+          os.dup2(prev_read, 0)                     
+    os.close(prev_read)
+    if not last: 
+    os.close(r)
+ os.dup2(w, 1)
+                    os.close(w)
+                try:
+                    self.apply_redirections(infile, outfile, append)
+                    if argv[0] in BUILTINS:
+                        status = self.builtin(argv)
+                        sys.stdout.flush()
+                        os._exit(status)
+                    os.execvp(argv[0], argv)
+                except FileNotFoundError as e:
+                    print(f"opsh: {e.filename + ': no such file' if e.filename else 'command not found: ' + argv[0]}", file=sys.stderr)
+                    os._exit(127)
+                except OSError as e:
+                    print(f"opsh: {e.filename or argv[0]}: {e.strerror}", file=sys.stderr)
+                    os._exit(126)
+            pids.append(pid)
+            if prev_read is not None:
+                os.close(prev_read)
+            if not last:
+                os.close(w)
+                prev_read = r
+        if background:
+            num = self.next_job
+            self.next_job += 1
+            self.jobs[num] = (list(pids), text.rstrip("& "))
+            self.last_bg_pid = pids[-1]
+            print(f"[{num}] {pids[-1]}")
+            return 0
+        return self.wait_for(pids)
 
-     def repl(self):
+    def wait_for(self, pids):
+        status = 0
+        for pid in pids:
+            try:
+                _, st = os.waitpid(pid, 0)
+            except ChildProcessError:
+                continue
+            status = os.waitstatus_to_exitcode(st)
+            if status < 0:
+                print()
+                status = 128 - status
+        return status
+  
+   def repl(self):
          while True:
              try:
                  line = input("opsh> ")
