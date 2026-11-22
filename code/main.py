@@ -1,6 +1,7 @@
 
 #!/usr/bin/env python3
 import os
+import re
 import shlex
 import signal
 import sys
@@ -14,6 +15,7 @@ BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo"]
 
 class Opsh:
     def __init__(self):
+        self.vars = {}
         self.last_status = 0
         self.last_bg_pid = "" 
         self.history = []
@@ -36,6 +38,96 @@ class Opsh:
             else:
                 print(f"\n[{num}]+ Done {cmd}")
                 del self.jobs[num]
+
+
+    def get_var(self, name):
+        if name == "?":
+            return str(self.last_status)
+        if name == "!":
+            return str(self.last_bg_pid)
+        if name == "$":
+            return str(os.getpid())
+        return self.vars.get(name, os.environ.get(name, ""))
+
+    def expand(self, line):
+        out, i, quote = "", 0, None
+        while i < len(line):
+            c = line[i]
+            if c == "'" and quote != '"':
+                quote = None if quote == "'" else "'"
+                out += c
+                i += 1
+            elif c == '"' and quote != "'":
+                quote = None if quote == '"' else '"'
+                out += c
+                i += 1
+            elif quote == "'":
+                out += c
+                i += 1
+            elif line.startswith("$((", i):
+                end = line.index("))", i)
+                expr = self.expand(line[i + 3:end])
+                expr = re.sub(r"[A-Za-z_][A-Za-z0-9_]*",
+                              lambda v: self.get_var(v.group()) or "0", expr)
+                out += self.arith(expr)
+                i = end + 2
+            elif line.startswith("$(", i):
+                end = self.matching_paren(line, i + 1)
+                out += self.capture(line[i + 2:end])
+                i = end + 1
+            elif c == "`":
+                end = line.index("`", i + 1)
+                out += self.capture(line[i + 1:end])
+                i = end + 1
+            elif line.startswith("${", i):
+                end = line.index("}", i)
+                out += self.get_var(line[i + 2:end])
+                i = end + 1
+            elif c == "$" and i + 1 < len(line):
+                m = re.match(r"[A-Za-z_][A-Za-z0-9_]*|[?!$]", line[i + 1:])
+                if m:
+                    out += self.get_var(m.group())
+                    i += 1 + len(m.group())
+                else:
+                    out += c
+                    i += 1
+            else:
+                out += c
+                i += 1
+        return out
+
+    @staticmethod
+    def matching_paren(s, start):
+        depth = 0
+        for j in range(start, len(s)):
+            depth += {"(": 1, ")": -1}.get(s[j], 0)
+            if depth == 0:
+                return j
+        raise SyntaxError("missing )")
+
+    @staticmethod
+    def arith(expr):
+        if not re.fullmatch(r"[\d\s+\-*/%()]*", expr):
+            raise SyntaxError(f"bad arithmetic: {expr}")
+        return str(int(eval(expr.replace("/", "//"))))
+
+    def capture(self, cmdline):
+        r, w = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+            os.close(r)
+            os.dup2(w, 1)
+            os.close(w)
+            self.run_line(cmdline)
+            sys.stdout.flush()
+            os._exit(self.last_status)
+        os.close(w)
+        with os.fdopen(r) as f:
+            data = f.read()
+        os.waitpid(pid, 0)
+        return data.rstrip("\n")
+
 
     @staticmethod
     def split_pipes(line):
@@ -98,10 +190,14 @@ class Opsh:
         elif cmd == "info":
             print("builtins : " + ", ".join(BUILTINS))
             print("aliases  : " + ", ".join(f"{k}={v}" for k, v in ALIASES.items()))
-                print("pipe : cmd1 -> cmd2   redirections: > >> <   background: &") 
+            print("pipe : cmd1 -> cmd2   redirections: > >> <   background: &") 
         elif cmd == "past":
             for n, h in enumerate(self.history, 1):
                 print(f"{n:>4}  {h}")
+        elif cmd == "export":
+            for a in args:
+                name, _, value = a.partition("=")
+                os.environ[name] = value if "=" in a else self.vars.get(name, "")
         return 0
 
 
@@ -142,10 +238,18 @@ class Opsh:
         if not line or line.startswith("#"):
             return
         try:
+            line = self.expand(line)
+            m = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", line)
+            if m:
+                self.vars[m.group(1)] = shlex.split(m.group(2))[0] if m.group(2) else ""
+                if m.group(1) in os.environ:
+                    os.environ[m.group(1)] = self.vars[m.group(1)]
+                self.last_status = 0
+                return
             commands = [self.parse_command(p) for p in self.split_pipes(line)]
-        except ValueError as e:
-            print(f"opsh: syntax error: {e}", file=sys.stderr)
-            self.last_status = 2
+        except (SyntaxError, ValueError, IndexError, ZeroDivisionError) as e: 
+         print(f"opsh: syntax error: {e}", file=sys.stderr)
+         self.last_status = 2
             return
         if any(not c[0] for c in commands):
             print("opsh: syntax error near '->'", file=sys.stderr)
