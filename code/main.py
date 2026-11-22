@@ -2,6 +2,7 @@
 #!/usr/bin/env python3
 import os
 import shlex
+import signal
 import sys
 
 ALIASES = {
@@ -10,13 +11,31 @@ ALIASES = {
 }
 BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo"]
 
+
 class Opsh:
     def __init__(self):
         self.last_status = 0
         self.last_bg_pid = "" 
         self.history = []
-          self.jobs = {}         
-          self.next_job = 1 
+        self.jobs = {}         
+        self.next_job = 1 
+        signal.signal(signal.SIGCHLD, self.on_sigchld)
+
+    def on_sigchld(self, signum, frame):
+        for num, (pids, cmd) in list(self.jobs.items()):
+            alive = []
+            for pid in pids:
+                try:
+                    done, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    done = pid
+                if done != pid:
+                    alive.append(pid)
+            if alive:
+                self.jobs[num] = (alive, cmd)
+            else:
+                print(f"\n[{num}]+ Done {cmd}")
+                del self.jobs[num]
 
     @staticmethod
     def split_pipes(line):
@@ -99,7 +118,7 @@ class Opsh:
             os.close(fd)
 
     def run_builtin_redirected(self, cmd):
-        argv, infile, outfile, append,_ = cmd
+        argv, infile, outfile, append, _ = cmd
         saved = os.dup(0), os.dup(1)
         try:
             sys.stdout.flush()
@@ -132,29 +151,37 @@ class Opsh:
             print("opsh: syntax error near '->'", file=sys.stderr)
             self.last_status = 2
             return
- self.last_status = self.run_pipeline(commands, line) 
-  def run_pipeline(self, commands, text):         
-  background = commands[-1][4] 
-  if len(commands) == 1 and commands[0][0][0] in BUILTINS and not background:
-             return self.run_builtin_redirected(commands[0])         
-             return self.fork_pipeline(commands, text, background)  
+        self.last_status = self.run_pipeline(commands, line)
+ 
+    def run_pipeline(self, commands, text):         
+        background = commands[-1][4] 
+        if len(commands) == 1 and commands[0][0][0] in BUILTINS and not background:
+             return self.run_builtin_redirected(commands[0])
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try: 
+             return self.fork_pipeline(commands, text, background)
+        finally:
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+ 
   def fork_pipeline(self, commands, text, background): 
- pids, prev_read = [], None 
-for idx, (argv, infile, outfile, append, _) in enumerate(commands): 
-  last = idx == len(commands) - 1 
-  if not last: 
-   r, w = os.pipe() 
-  pid = os.fork() 
-    if pid == 0:
-    if background:                     
-          os.setpgid(0, 0)
-   if prev_read is not None:      
-          os.dup2(prev_read, 0)                     
-    os.close(prev_read)
-    if not last: 
-    os.close(r)
- os.dup2(w, 1)
-                    os.close(w)
+      pids, prev_read = [], None 
+      for idx, (argv, infile, outfile, append, _) in enumerate(commands): 
+          last = idx == len(commands) - 1 
+          if not last: 
+              r, w = os.pipe() 
+          pid = os.fork() 
+          if pid == 0:
+              signal.signal(signal.SIGINT, signal.SIG_DFL)
+              signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+              if background:                     
+                  os.setpgid(0, 0)
+              if prev_read is not None:      
+                  os.dup2(prev_read, 0)                     
+                  os.close(prev_read)
+              if not last: 
+                  os.close(r)
+                  os.dup2(w, 1)
+                  os.close(w)
                 try:
                     self.apply_redirections(infile, outfile, append)
                     if argv[0] in BUILTINS:
@@ -200,6 +227,9 @@ for idx, (argv, infile, outfile, append, _) in enumerate(commands):
          while True:
              try:
                  line = input("opsh> ")
+             except KeyboardInterrupt:
+                print()
+                continue
              except EOFError:
                  print()
                   break
