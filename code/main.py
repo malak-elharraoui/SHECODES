@@ -6,12 +6,20 @@ import shlex
 import signal
 import sys
 
+try:
+    import readline
+except ImportError:
+    readline = None
+
+
 ALIASES = {
     "list": "ls", "show": "cat", "copy": "cp", "move": "mv",
     "del": "rm", "newdir": "mkdir", "newfile": "touch",
 }
-BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo"]
+BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo", "export"]
 
+HISTORY_FILE = os.path.expanduser("~/.opsh_history")
+RC_FILE = os.path.expanduser("~/.opshrc")
 
 class Opsh:
     def __init__(self):
@@ -150,7 +158,7 @@ class Opsh:
         lex = shlex.shlex(text, posix=True, punctuation_chars="<>&")
         lex.whitespace_split = True
         tokens = list(lex)
-        argv, infile, outfile, append,bg = [], None, None, False, False
+        argv, infile, outfile, append, bg = [], None, None, False, False
         i = 0
         while i < len(tokens):
             t = tokens[i]
@@ -180,6 +188,7 @@ class Opsh:
                 print(f"go: {target}: {e.strerror}", file=sys.stderr)
                 return 1
         elif cmd == "quit":
+            self.save_history()
             sys.exit(int(args[0]) if args else 0)
         elif cmd == "path":
             print(os.getcwd())
@@ -251,10 +260,12 @@ class Opsh:
          print(f"opsh: syntax error: {e}", file=sys.stderr)
          self.last_status = 2
             return
+
         if any(not c[0] for c in commands):
             print("opsh: syntax error near '->'", file=sys.stderr)
             self.last_status = 2
             return
+
         self.last_status = self.run_pipeline(commands, line)
  
     def run_pipeline(self, commands, text):         
@@ -326,8 +337,50 @@ class Opsh:
                 print()
                 status = 128 - status
         return status
-  
+  def setup_readline(self):
+        if not readline:
+            return
+        try:
+            readline.read_history_file(HISTORY_FILE)
+            self.history = [readline.get_history_item(i)
+                            for i in range(1, readline.get_current_history_length() + 1)]
+        except OSError:
+            pass
+        words = BUILTINS + list(ALIASES)
+
+        def complete(text, state):
+            if readline.get_line_buffer().split()[:1] in ([], [text]):
+                options = [w for w in words if w.startswith(text)]
+            else:
+                d, base = os.path.split(text)
+                try:
+                    options = [os.path.join(d, f) + ("/" if os.path.isdir(os.path.join(d or ".", f)) else "")
+                               for f in os.listdir(d or ".") if f.startswith(base)]
+                except OSError:
+                    options = []
+            return options[state] if state < len(options) else None
+
+        readline.set_completer(complete)
+        readline.set_completer_delims(" \t")
+        readline.parse_and_bind("bind ^I rl_complete" if "libedit" in (readline.__doc__ or "") else "tab: complete")
+
+    def save_history(self):
+        if readline:
+            try:
+                readline.write_history_file(HISTORY_FILE)
+            except OSError:
+                pass
+
+    def load_rc(self):
+        if os.path.exists(RC_FILE):
+            with open(RC_FILE) as f:
+                for line in f:
+                    self.run_line(line)
+
    def repl(self):
+        self.setup_readline()
+        self.load_rc()
+
          while True:
              try:
                  line = input("opsh> ")
@@ -340,6 +393,8 @@ class Opsh:
              if line.strip():
                 self.history.append(line)
              self.run_line(line)
+           self.save_history()
+
    def main():
     shell = Opsh()
     shell.repl()
