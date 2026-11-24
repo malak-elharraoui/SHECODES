@@ -135,15 +135,27 @@ os.close(w)
             data = f.read()
         os.waitpid(pid, 0)
         return data.rstrip("\n")
-os.close(w)
-            self.run_line(cmdline)
-            sys.stdout.flush()
-            os._exit(self.last_status)
-        os.close(w)
-        with os.fdopen(r) as f:
-            data = f.read()
-        os.waitpid(pid, 0)
-        return data.rstrip("\n")
+   
+
+@staticmethod
+    def split_pipes(line):
+        """Split on '->' but not inside quotes."""
+        parts, cur, quote, i = [], "", None, 0
+        while i < len(line):
+            c = line[i]
+            if c in "'\"":
+                quote = None if quote == c else (c if quote is None else quote)
+            if quote is None and line.startswith("->", i):
+                parts.append(cur)
+                cur, i = "", i + 2
+                continue
+            cur += c
+            i += 1
+        parts.append(cur)
+        return [p.strip() for p in parts]
+
+
+
     @staticmethod
     def parse_command(text):
         lex = shlex.shlex(text, posix=True, punctuation_chars="<>&")
@@ -157,7 +169,7 @@ os.close(w)
                 outfile, append = tokens[i + 1], t == ">>"
                 i += 2
             elif t == "<":
-                infile = tokens[i + 1]
+               infile = tokens[i + 1]
                 i += 2
             elif t == "&":
                 bg = True
@@ -167,10 +179,9 @@ os.close(w)
                 i += 1
         if argv and argv[0] in ALIASES:
             argv[0] = ALIASES[argv[0]]
-        return argv, infile, outfile, append, bgos.close(w)
-            self.run_line(cmdline)
-            sys.stdout.flush()
-            os._exit(self.last_status)
+        return argv, infile, outfile, append, bg
+
+
 
  def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
@@ -442,8 +453,7 @@ def run_nodes(self, nodes):
    def repl(self):
         self.setup_readline()
         self.load_rc()
-
-         while True:
+        while True:
              try:
                  line = input("opsh> ")
              except KeyboardInterrupt:
