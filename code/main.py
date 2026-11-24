@@ -165,13 +165,10 @@ class Opsh:
                 outfile, append = tokens[i + 1], t == ">>"
                 i += 2
             elif t == "<":
-<<<<<<< HEAD
                 infile = tokens[i + 1]
                 i += 2
-=======
                infile = tokens[i + 1]
                i += 2
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
             elif t == "&":
                 bg = True
                 i += 1
@@ -181,12 +178,6 @@ class Opsh:
         if argv and argv[0] in ALIASES:
             argv[0] = ALIASES[argv[0]]
         return argv, infile, outfile, append, bg
-<<<<<<< HEAD
-=======
-
-
-
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
     def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
         if cmd == "go":
@@ -232,9 +223,6 @@ class Opsh:
             finally:
                 signal.signal(signal.SIGINT, signal.default_int_handler)
         return 0
-
-
-<<<<<<< HEAD
     @staticmethod
     def apply_redirections(infile, outfile, append):
         if infile:
@@ -263,9 +251,6 @@ class Opsh:
             os.close(saved[0])
             os.close(saved[1])
         return status
-=======
-
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
     def run_line(self, line):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -284,10 +269,6 @@ class Opsh:
          print(f"opsh: syntax error: {e}", file=sys.stderr)
          self.last_status = 2
          return
-<<<<<<< HEAD
-=======
-
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
         if any(not c[0] for c in commands):
             print("opsh: syntax error near '->'", file=sys.stderr)
             self.last_status = 2
@@ -303,7 +284,6 @@ class Opsh:
              return self.fork_pipeline(commands, text, background)
         finally:
             signal.signal(signal.SIGINT, signal.default_int_handler)
-<<<<<<< HEAD
     def fork_pipeline(self, commands, text, background):
       pids, prev_read = [], None
       for idx, (argv, infile, outfile, append, _) in enumerate(commands):
@@ -311,8 +291,6 @@ class Opsh:
           if not last:
               r, w = os.pipe()
           pid = os.fork()
-=======
- 
     def fork_pipeline(self, commands, text, background): 
       pids, prev_read = [], None 
       for idx, (argv, infile, outfile, append, _) in enumerate(commands): 
@@ -320,7 +298,6 @@ class Opsh:
           if not last: 
               r, w = os.pipe() 
           pid = os.fork() 
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
           if pid == 0:
               signal.signal(signal.SIGINT, signal.SIG_DFL)
               signal.signal(signal.SIGCHLD, signal.SIG_DFL)
@@ -334,42 +311,36 @@ class Opsh:
                   os.dup2(w, 1)
                   os.close(w)
               try:
-<<<<<<< HEAD
                   self.apply_redirections(infile, outfile, append)
                   if argv[0] in BUILTINS:
                         status = self.builtin(argv)
                         sys.stdout.flush()
                         os._exit(status)
                   os.execvp(argv[0], argv)
-=======
                     self.apply_redirections(infile, outfile, append)
                     if argv[0] in BUILTINS:
                         status = self.builtin(argv)
                         sys.stdout.flush()
                         os._exit(status)
                     os.execvp(argv[0], argv)
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
               except FileNotFoundError as e:
                     print(f"opsh: {e.filename + ': no such file' if e.filename else 'command not found: ' + argv[0]}", file=sys.stderr)
                     os._exit(127)
               except OSError as e:
                     print(f"opsh: {e.filename or argv[0]}: {e.strerror}", file=sys.stderr)
                     os._exit(126)
-<<<<<<< HEAD
           pids.append(pid)
           if prev_read is not None:
                 os.close(prev_read)
           if not last:
                 os.close(w)
                 prev_read = r
-=======
       pids.append(pid)
       if prev_read is not None:
              os.close(prev_read)
       if not last:
              os.close(w)
              prev_read = r
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
       if background:
             num = self.next_job
             self.next_job += 1
@@ -378,10 +349,6 @@ class Opsh:
             print(f"[{num}] {pids[-1]}")
             return 0
       return self.wait_for(pids)
-<<<<<<< HEAD
-=======
-
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
     def wait_for(self, pids):
         status = 0
         for pid in pids:
@@ -394,11 +361,8 @@ class Opsh:
                 print()
                 status = 128 - status
         return status
-<<<<<<< HEAD
     def repl(self):
          while True:
-=======
-
 @staticmethod
 def apply_redirections(infile, outfile, append):
         if infile:
@@ -523,7 +487,6 @@ def load_rc(self):
         self.setup_readline()
         self.load_rc()
         while True:
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
              try:
                 line = input("opsh> ")
              except KeyboardInterrupt:
@@ -535,18 +498,14 @@ def load_rc(self):
              if line.strip():
                 self.history.append(line)
              self.run_line(line)
-<<<<<<< HEAD
 def main():
     shell = Opsh()
     shell.repl()
-=======
         self.save_history()
 def main():
        shell = Opsh()
        if len(sys.argv) > 1:
            sys.exit(shell.run_script(sys.argv[1]))
        shell.repl()
->>>>>>> 480ab0c376b7cb0f4691cae69e4855652dd38c95
-
 if __name__ == "__main__":
     main()
