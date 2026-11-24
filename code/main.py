@@ -9,14 +9,14 @@ import sys
 try:
     import readline
 except ImportError:
-    readline = None
+    readli@staticmethodne = None
 
 
 ALIASES = {
     "list": "ls", "show": "cat", "copy": "cp", "move": "mv",
     "del": "rm", "newdir": "mkdir", "newfile": "touch",
 }
-BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo", "export"]
+BUILTINS = ["go", "quit", "path", "say", "info", "past", "osinfo", "export","jobs", "fg"]
 
 HISTORY_FILE = os.path.expanduser("~/.opsh_history")
 RC_FILE = os.path.expanduser("~/.opshrc")
@@ -36,7 +36,7 @@ class Opsh:
             alive = []
             for pid in pids:
                 try:
-                    done, _ = os.waitpid(pid, os.WNOHANG)
+                    done, status = os.waitpid(pid, os.WNOHANG)
                 except ChildProcessError:
                     done = pid
                 if done != pid:
@@ -126,7 +126,7 @@ class Opsh:
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             os.close(r)
             os.dup2(w, 1)
-            os.close(w)
+os.close(w)
             self.run_line(cmdline)
             sys.stdout.flush()
             os._exit(self.last_status)
@@ -135,24 +135,15 @@ class Opsh:
             data = f.read()
         os.waitpid(pid, 0)
         return data.rstrip("\n")
-
-
-    @staticmethod
-    def split_pipes(line):
-        parts, cur, quote, i = [], "", None, 0
-        while i < len(line):
-            c = line[i]
-            if c in "'\"":
-                quote = None if quote == c else (c if quote is None else quote)
-            if quote is None and line.startswith("->", i):
-                parts.append(cur)
-                cur, i = "", i + 2
-                continue
-            cur += c
-            i += 1
-        parts.append(cur)
-        return [p.strip() for p in parts]
-
+os.close(w)
+            self.run_line(cmdline)
+            sys.stdout.flush()
+            os._exit(self.last_status)
+        os.close(w)
+        with os.fdopen(r) as f:
+            data = f.read()
+        os.waitpid(pid, 0)
+        return data.rstrip("\n")
     @staticmethod
     def parse_command(text):
         lex = shlex.shlex(text, posix=True, punctuation_chars="<>&")
@@ -168,17 +159,20 @@ class Opsh:
             elif t == "<":
                 infile = tokens[i + 1]
                 i += 2
-            elif t == "&":                 
-                bg = True                
-                i += 1 
+            elif t == "&":
+                bg = True
+                i += 1
             else:
                 argv.append(t)
                 i += 1
         if argv and argv[0] in ALIASES:
             argv[0] = ALIASES[argv[0]]
-        return argv, infile, outfile, append, bg
+        return argv, infile, outfile, append, bgos.close(w)
+            self.run_line(cmdline)
+            sys.stdout.flush()
+            os._exit(self.last_status)
 
-    def builtin(self, argv):
+ def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
         if cmd == "go":
             target = args[0] if args else os.path.expanduser("~")
@@ -199,7 +193,7 @@ class Opsh:
         elif cmd == "info":
             print("builtins : " + ", ".join(BUILTINS))
             print("aliases  : " + ", ".join(f"{k}={v}" for k, v in ALIASES.items()))
-            print("pipe : cmd1 -> cmd2   redirections: > >> <   background: &") 
+            print("pipe : cmd1 -> cmd2   redirections: > >> <   background: &")
         elif cmd == "past":
             for n, h in enumerate(self.history, 1):
                 print(f"{n:>4}  {h}")
@@ -207,42 +201,26 @@ class Opsh:
             for a in args:
                 name, _, value = a.partition("=")
                 os.environ[name] = value if "=" in a else self.vars.get(name, "")
+        elif cmd == "jobs":
+            for num, (pids, c) in self.jobs.items():
+                print(f"[{num}] {pids[-1]} Running {c}")
+        elif cmd == "fg":
+            num = int(args[0].lstrip("%")) if args else max(self.jobs, default=None)
+            if num not in self.jobs:
+                print("fg: no such job", file=sys.stderr)
+                return 1
+            pids, c = self.jobs.pop(num)
+            print(c)
+            signal.signal(signal.SIGINT, lambda s, f: [os.kill(p, s) for p in pids])
+            try:
+                return self.wait_for(pids)
+            finally:
+                signal.signal(signal.SIGINT, signal.default_int_handler)
         return 0
 
 
-        @staticmethod
-    def apply_redirections(infile, outfile, append):
-        if infile:
-            fd = os.open(infile, os.O_RDONLY)
-            os.dup2(fd, 0)
-            os.close(fd)
-        if outfile:
-            flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
-            fd = os.open(outfile, flags, 0o644)
-            os.dup2(fd, 1)
-            os.close(fd)
 
-    def run_builtin_redirected(self, cmd):
-        argv, infile, outfile, append, _ = cmd
-        saved = os.dup(0), os.dup(1)
-        try:
-            sys.stdout.flush()
-            self.apply_redirections(infile, outfile, append)
-            status = self.builtin(argv)
-            sys.stdout.flush()
-        except (OSError, ValueError) as e:
-            print(f"opsh: {e}", file=sys.stderr)
-            status = 1
-        finally:
-            os.dup2(saved[0], 0)
-            os.dup2(saved[1], 1)
-            os.close(saved[0])
-            os.close(saved[1])
-        return status
-
-
-
-    def run_line(self, line):
+ def run_line(self, line):
         line = line.strip()
         if not line or line.startswith("#"):
             return
@@ -337,7 +315,91 @@ class Opsh:
                 print()
                 status = 128 - status
         return status
-  def setup_readline(self):
+
+@staticmethod
+    def apply_redirections(infile, outfile, append):
+        if infile:
+            fd = os.open(infile, os.O_RDONLY)
+            os.dup2(fd, 0)
+            os.close(fd)
+        if outfile:
+            flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
+            fd = os.open(outfile, flags, 0o644)
+            os.dup2(fd, 1)
+            os.close(fd)
+    
+def run_builtin_redirected(self, cmd):
+        argv, infile, outfile, append, _ = cmd
+        saved = os.dup(0), os.dup(1)
+        try:
+            sys.stdout.flush()
+            self.apply_redirections(infile, outfile, append)
+            status = self.builtin(argv)
+            sys.stdout.flush()
+        except (OSError, ValueError) as e:
+            print(f"opsh: {e}", file=sys.stderr)
+            status = 1
+        finally:
+            os.dup2(saved[0], 0)
+            os.dup2(saved[1], 1)
+            os.close(saved[0])
+            os.close(saved[1])
+        return status
+
+def parse_block(self, lines, i, ends):
+        nodes = []
+        while i < len(lines):
+            line = lines[i].strip()
+            word = line.split()[0] if line else ""
+            if word in ends:
+                return nodes, i
+            if word == "if":
+                cond = line[2:].strip()
+                then_part, i = self.parse_block(lines, i + 2, ("else", "fi"))
+                else_part = []
+                if lines[i].strip() == "else":
+                    else_part, i = self.parse_block(lines, i + 1, ("fi",))
+                nodes.append(("if", cond, then_part, else_part))
+            elif word == "for":
+                parts = line.split()
+                body, i = self.parse_block(lines, i + 2, ("done",))
+                nodes.append(("for", parts[1], " ".join(parts[3:]), body))
+            elif word == "while":
+                body, i = self.parse_block(lines, i + 2, ("done",))
+                nodes.append(("while", line[5:].strip(), body))
+            elif line and not line.startswith("#"):
+                nodes.append(("cmd", line))
+            i += 1
+        return nodes, i
+
+def run_nodes(self, nodes):
+        for node in nodes:
+            kind = node[0]
+            if kind == "cmd":
+                self.run_line(node[1])
+            elif kind == "if":
+                self.run_line(node[1])
+                self.run_nodes(node[2] if self.last_status == 0 else node[3])
+            elif kind == "for":
+                for value in shlex.split(self.expand(node[2])):
+                    self.vars[node[1]] = value
+                    self.run_nodes(node[3])
+            elif kind == "while":
+                while True:
+                    self.run_line(node[1])
+                    if self.last_status != 0:
+                        break
+                    self.run_nodes(node[2])
+
+ def run_script(self, path):
+        with open(path) as f:
+            text = f.read()
+        text = re.sub(r";\s*(then|do)\b", r"\n\1", text)
+        nodes, _ = self.parse_block(text.splitlines(), 0, ())
+        self.run_nodes(nodes)
+        return self.last_status
+
+ def setup_readline(self):
         if not readline:
             return
         try:
@@ -396,8 +458,11 @@ class Opsh:
            self.save_history()
 
    def main():
-    shell = Opsh()
-    shell.repl()
+       shell = Opsh()
+       if len(sys.argv) > 1:
+           sys.exit(shell.run_script(sys.argv[1]))
+       shell.repl()
+
 
    if __name__ == "__main__":
     main()
