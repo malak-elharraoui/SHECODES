@@ -9,7 +9,7 @@ import sys
 try:
     import readline
 except ImportError:
-    readli@staticmethodne = None
+    readli@staticmethodne == None
 
 
 ALIASES = {
@@ -126,7 +126,7 @@ class Opsh:
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             os.close(r)
             os.dup2(w, 1)
-os.close(w)
+            os.close(w)
             self.run_line(cmdline)
             sys.stdout.flush()
             os._exit(self.last_status)
@@ -137,7 +137,7 @@ os.close(w)
         return data.rstrip("\n")
    
 
-@staticmethod
+    @staticmethod
     def split_pipes(line):
         """Split on '->' but not inside quotes."""
         parts, cur, quote, i = [], "", None, 0
@@ -170,7 +170,7 @@ os.close(w)
                 i += 2
             elif t == "<":
                infile = tokens[i + 1]
-                i += 2
+               i += 2
             elif t == "&":
                 bg = True
                 i += 1
@@ -183,7 +183,7 @@ os.close(w)
 
 
 
- def builtin(self, argv):
+    def builtin(self, argv):
         cmd, args = argv[0], argv[1:]
         if cmd == "go":
             target = args[0] if args else os.path.expanduser("~")
@@ -231,7 +231,7 @@ os.close(w)
 
 
 
- def run_line(self, line):
+    def run_line(self, line):
         line = line.strip()
         if not line or line.startswith("#"):
             return
@@ -248,7 +248,7 @@ os.close(w)
         except (SyntaxError, ValueError, IndexError, ZeroDivisionError) as e: 
          print(f"opsh: syntax error: {e}", file=sys.stderr)
          self.last_status = 2
-            return
+         return
 
         if any(not c[0] for c in commands):
             print("opsh: syntax error near '->'", file=sys.stderr)
@@ -267,7 +267,7 @@ os.close(w)
         finally:
             signal.signal(signal.SIGINT, signal.default_int_handler)
  
-  def fork_pipeline(self, commands, text, background): 
+    def fork_pipeline(self, commands, text, background): 
       pids, prev_read = [], None 
       for idx, (argv, infile, outfile, append, _) in enumerate(commands): 
           last = idx == len(commands) - 1 
@@ -286,33 +286,33 @@ os.close(w)
                   os.close(r)
                   os.dup2(w, 1)
                   os.close(w)
-                try:
+              try:
                     self.apply_redirections(infile, outfile, append)
                     if argv[0] in BUILTINS:
                         status = self.builtin(argv)
                         sys.stdout.flush()
                         os._exit(status)
                     os.execvp(argv[0], argv)
-                except FileNotFoundError as e:
+              except FileNotFoundError as e:
                     print(f"opsh: {e.filename + ': no such file' if e.filename else 'command not found: ' + argv[0]}", file=sys.stderr)
                     os._exit(127)
-                except OSError as e:
+              except OSError as e:
                     print(f"opsh: {e.filename or argv[0]}: {e.strerror}", file=sys.stderr)
                     os._exit(126)
-            pids.append(pid)
-            if prev_read is not None:
-                os.close(prev_read)
-            if not last:
-                os.close(w)
-                prev_read = r
-        if background:
+      pids.append(pid)
+      if prev_read is not None:
+             os.close(prev_read)
+      if not last:
+             os.close(w)
+             prev_read = r
+      if background:
             num = self.next_job
             self.next_job += 1
             self.jobs[num] = (list(pids), text.rstrip("& "))
             self.last_bg_pid = pids[-1]
             print(f"[{num}] {pids[-1]}")
             return 0
-        return self.wait_for(pids)
+      return self.wait_for(pids)
 
     def wait_for(self, pids):
         status = 0
@@ -328,7 +328,7 @@ os.close(w)
         return status
 
 @staticmethod
-    def apply_redirections(infile, outfile, append):
+def apply_redirections(infile, outfile, append):
         if infile:
             fd = os.open(infile, os.O_RDONLY)
             os.dup2(fd, 0)
@@ -402,7 +402,7 @@ def run_nodes(self, nodes):
                         break
                     self.run_nodes(node[2])
 
- def run_script(self, path):
+def run_script(self, path):
         with open(path) as f:
             text = f.read()
         text = re.sub(r";\s*(then|do)\b", r"\n\1", text)
@@ -410,7 +410,7 @@ def run_nodes(self, nodes):
         self.run_nodes(nodes)
         return self.last_status
 
- def setup_readline(self):
+def setup_readline(self):
         if not readline:
             return
         try:
@@ -436,43 +436,38 @@ def run_nodes(self, nodes):
         readline.set_completer(complete)
         readline.set_completer_delims(" \t")
         readline.parse_and_bind("bind ^I rl_complete" if "libedit" in (readline.__doc__ or "") else "tab: complete")
-
-    def save_history(self):
+def save_history(self):
         if readline:
             try:
                 readline.write_history_file(HISTORY_FILE)
             except OSError:
                 pass
-
-    def load_rc(self):
+def load_rc(self):
         if os.path.exists(RC_FILE):
             with open(RC_FILE) as f:
                 for line in f:
                     self.run_line(line)
-
-   def repl(self):
+  def repl(self):
         self.setup_readline()
         self.load_rc()
         while True:
              try:
-                 line = input("opsh> ")
+                line = input("opsh> ")
              except KeyboardInterrupt:
                 print()
                 continue
              except EOFError:
-                 print()
-                  break
+                print()
+                break
              if line.strip():
                 self.history.append(line)
              self.run_line(line)
-           self.save_history()
-
-   def main():
+        self.save_history()
+def main():
        shell = Opsh()
        if len(sys.argv) > 1:
            sys.exit(shell.run_script(sys.argv[1]))
        shell.repl()
 
-
-   if __name__ == "__main__":
+if __name__ == "__main__":
     main()
